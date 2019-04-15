@@ -156,6 +156,11 @@ type Server interface {
 	// UpdateMember attempts to update an existing member in the cluster. It will
 	// return ErrIDNotFound if the member ID does not exist.
 	UpdateMember(ctx context.Context, updateMemb membership.Member) ([]*membership.Member, error)
+	// PromoteMember attempts to promote a non-voting node to a voting node. It will
+	// return ErrIDNotFound if the member ID does not exist.
+	// return ErrLearnerNotReady if the member are not ready.
+	// return ErrMemberNotLearner if the member is not a learner.
+	PromoteMember(ctx context.Context, id uint64) ([]*membership.Member, error)
 
 	// ClusterVersion is the cluster-wide minimum major.minor version.
 	// Cluster version is set to the min version that an etcd member is
@@ -1611,6 +1616,51 @@ func (s *EtcdServer) RemoveMember(ctx context.Context, id uint64) ([]*membership
 	return s.configure(ctx, cc)
 }
 
+// PromoteMember promotes a learner node to a voting node.
+func (s *EtcdServer) PromoteMember(ctx context.Context, id uint64) ([]*membership.Member, error) {
+	if err := s.checkMembershipOperationPermission(ctx); err != nil {
+		return nil, err
+	}
+
+	// check if we can promote this learner
+	if err := s.mayPromoteMember(types.ID(id)); err != nil {
+		return nil, err
+	}
+
+	// build the context for the promote confChange. mark IsLearner to false and IsPromote to true.
+	promoteChangeContext := membership.ConfigChangeContext{
+		Member: membership.Member{
+			ID: types.ID(id),
+		},
+		IsPromote: true,
+	}
+
+	b, err := json.Marshal(promoteChangeContext)
+	if err != nil {
+		return nil, err
+	}
+
+	cc := raftpb.ConfChange{
+		Type:    raftpb.ConfChangeAddNode,
+		NodeID:  id,
+		Context: b,
+	}
+
+	return s.configure(ctx, cc)
+}
+
+func (s *EtcdServer) mayPromoteMember(id types.ID) error {
+	if !s.Cfg.StrictReconfigCheck {
+		return nil
+	}
+	// TODO add more checks whether the member can be promoted.
+	// like learner progress check or if cluster is ready to promote a learner
+	// this is an example to get progress
+	fmt.Printf("raftStatus, %#v\n", raftStatus())
+
+	return nil
+}
+
 func (s *EtcdServer) mayRemoveMember(id types.ID) error {
 	if !s.Cfg.StrictReconfigCheck {
 		return nil
@@ -2061,28 +2111,33 @@ func (s *EtcdServer) applyConfChange(cc raftpb.ConfChange, confState *raftpb.Con
 	*confState = *s.r.ApplyConfChange(cc)
 	switch cc.Type {
 	case raftpb.ConfChangeAddNode, raftpb.ConfChangeAddLearnerNode:
-		m := new(membership.Member)
-		if err := json.Unmarshal(cc.Context, m); err != nil {
+		confChangeContext := new(membership.ConfigChangeContext)
+		if err := json.Unmarshal(cc.Context, confChangeContext); err != nil {
 			if lg != nil {
 				lg.Panic("failed to unmarshal member", zap.Error(err))
 			} else {
 				plog.Panicf("unmarshal member should never fail: %v", err)
 			}
 		}
-		if cc.NodeID != uint64(m.ID) {
+		if cc.NodeID != uint64(confChangeContext.Member.ID) {
 			if lg != nil {
 				lg.Panic(
 					"got different member ID",
 					zap.String("member-id-from-config-change-entry", types.ID(cc.NodeID).String()),
-					zap.String("member-id-from-message", m.ID.String()),
+					zap.String("member-id-from-message", confChangeContext.Member.ID.String()),
 				)
 			} else {
 				plog.Panicf("nodeID should always be equal to member ID")
 			}
 		}
-		s.cluster.AddMember(m)
-		if m.ID != s.id {
-			s.r.transport.AddPeer(m.ID, m.PeerURLs)
+		if confChangeContext.IsPromote {
+			s.cluster.PromoteMember(confChangeContext.Member.ID)
+		} else {
+			s.cluster.AddMember(&confChangeContext.Member)
+
+			if confChangeContext.Member.ID != s.id {
+				s.r.transport.AddPeer(confChangeContext.Member.ID, confChangeContext.PeerURLs)
+			}
 		}
 
 	case raftpb.ConfChangeRemoveNode:
