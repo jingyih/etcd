@@ -104,3 +104,6 @@ PermitWithoutStream
 __lostleader
 ErrConnClosing
 unfreed
+grpcAddr
+clientURLs
+
