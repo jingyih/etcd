@@ -57,6 +57,11 @@ type RaftCluster struct {
 	// removed contains the ids of removed members in the cluster.
 	// removed id cannot be reused.
 	removed map[types.ID]bool
+
+	// localNodeAdded is set to true when local member is added to RaftCluster via AddMember(). During
+	// starting and restarting of the server, a server might not have complete member information about
+	// itself until it applies the corresponding raft log entries which adds itself to RaftCluster.
+	localNodeAdded bool
 }
 
 // ConfigChangeContext represents a context for confChange.
@@ -359,6 +364,10 @@ func (c *RaftCluster) AddMember(m *Member) {
 	}
 
 	c.members[m.ID] = m
+
+	if m.ID == c.localID {
+		c.localNodeAdded = true
+	}
 
 	if c.lg != nil {
 		c.lg.Info(
@@ -775,4 +784,13 @@ func (c *RaftCluster) VotingMemberIDs() []types.ID {
 	}
 	sort.Sort(types.IDSlice(ids))
 	return ids
+}
+
+// IsAddedToCluster returns true if server itself is added to s.cluster via configuration apply. During
+// starting and restarting of the server, a server might not have complete member information about itself
+// until it applies the corresponding raft log entries which adds itself to s.cluster.
+func (c *RaftCluster) IsAddedToCluster() bool {
+	c.Lock()
+	defer c.Unlock()
+	return c.localNodeAdded
 }

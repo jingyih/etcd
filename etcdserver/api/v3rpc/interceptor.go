@@ -49,6 +49,10 @@ func newUnaryInterceptor(s *etcdserver.EtcdServer) grpc.UnaryServerInterceptor {
 		}
 
 		// TODO: add test in clientv3/integration to verify behavior
+		if !s.IsAddedToCluster() {
+			// server is not ready to serve if itself is not yet added to cluster
+			return nil, rpctypes.ErrGRPCServerNotReady
+		}
 		if s.IsLearner() && !isRPCEnabledForLearner(req) {
 			return nil, rpctypes.ErrGPRCNotSupportedForLearner
 		}
@@ -195,6 +199,10 @@ func newStreamInterceptor(s *etcdserver.EtcdServer) grpc.StreamServerInterceptor
 			return rpctypes.ErrGRPCNotCapable
 		}
 
+		if !s.IsAddedToCluster() {
+			// server is not ready to serve if itself is not yet added to cluster
+			return rpctypes.ErrGRPCServerNotReady
+		}
 		if s.IsLearner() { // learner does not support Watch and LeaseKeepAlive RPC
 			return rpctypes.ErrGPRCNotSupportedForLearner
 		}

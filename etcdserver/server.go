@@ -2500,3 +2500,10 @@ func (s *EtcdServer) Logger() *zap.Logger {
 func (s *EtcdServer) IsLearner() bool {
 	return s.cluster.IsLearner()
 }
+
+// IsAddedToCluster returns true if server itself is added to s.cluster via configuration apply. During
+// starting and restarting of the server, a server might not have complete member information about itself
+// until it applies the corresponding raft log entries which adds itself to s.cluster.
+func (s *EtcdServer) IsAddedToCluster() bool {
+	return s.cluster.IsAddedToCluster()
+}
