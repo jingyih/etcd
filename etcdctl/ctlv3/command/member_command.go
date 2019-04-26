@@ -257,7 +257,37 @@ func memberPromoteCommandFunc(cmd *cobra.Command, args []string) {
 	}
 
 	ctx, cancel := commandCtx(cmd)
-	resp, err := mustClientFromCmd(cmd).MemberPromote(ctx, id)
+	eps, err := endpointsFromCmd(cmd)
+	if err != nil {
+		ExitWithError(ExitError, err)
+	}
+
+	var (
+		leaderEp    string
+		leaderFound bool
+	)
+	for _, ep := range eps {
+		cfg := clientConfigFromCmd(cmd)
+		cfg.endpoints = []string{ep}
+		cli := cfg.mustClient()
+		resp, serr := cli.Status(ctx, ep)
+		if serr != nil {
+			ExitWithError(ExitError, serr)
+		}
+		if resp.Header.GetMemberId() == resp.Leader {
+			leaderFound = true
+			leaderEp = ep
+			break
+		}
+		cli.Close()
+	}
+	if !leaderFound {
+		ExitWithError(ExitBadArgs, fmt.Errorf("no leader endpoint found in %v", eps))
+	}
+
+	cfg := clientConfigFromCmd(cmd)
+	cfg.endpoints = []string{leaderEp}
+	resp, err := cfg.mustClient().MemberPromote(ctx, id)
 	cancel()
 	if err != nil {
 		ExitWithError(ExitError, err)
