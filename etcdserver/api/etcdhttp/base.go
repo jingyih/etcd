@@ -135,6 +135,17 @@ func allowMethod(w http.ResponseWriter, r *http.Request, m string) bool {
 	return false
 }
 
+func allowMethods(w http.ResponseWriter, r *http.Request, ms ...string) bool {
+	for _, m := range ms {
+		if m == r.Method {
+			return true
+		}
+	}
+	w.Header().Set("Allow", strings.Join(ms, ","))
+	http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+	return false
+}
+
 // WriteError logs and writes the given Error to the ResponseWriter
 // If Error is an etcdErr, it is rendered to the ResponseWriter
 // Otherwise, it is assumed to be a StatusInternalServerError
