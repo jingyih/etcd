@@ -383,8 +383,8 @@ func promoteMemberHTTP(ctx context.Context, url string, id uint64, peerRt http.R
 	}
 	if resp.StatusCode == http.StatusPreconditionFailed {
 		// both ErrMemberNotLearner and ErrLearnerNotReady have same http status code
-		if strings.Contains(string(b), membership.ErrLearnerNotReady.Error()) {
-			return nil, membership.ErrLearnerNotReady
+		if strings.Contains(string(b), ErrLearnerNotReady.Error()) {
+			return nil, ErrLearnerNotReady
 		}
 		if strings.Contains(string(b), membership.ErrMemberNotLearner.Error()) {
 			return nil, membership.ErrMemberNotLearner
@@ -393,6 +393,10 @@ func promoteMemberHTTP(ctx context.Context, url string, id uint64, peerRt http.R
 	}
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, membership.ErrIDNotFound
+	}
+
+	if resp.StatusCode != http.StatusOK { // all other types of errors
+		return nil, fmt.Errorf("member promote: unknown error(%s)", string(b))
 	}
 
 	var membs []*membership.Member
